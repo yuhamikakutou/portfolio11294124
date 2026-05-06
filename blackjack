@@ -1,73 +1,126 @@
 import random
 
-# カードデッキの作成
-def create_deck():
-    suits = ['ハート', 'ダイヤ', 'スペード', 'クラブ']
-    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-    deck = [{'スート': suit, 'ランク': rank} for suit in suits for rank in ranks]
-    random.shuffle(deck)
-    return deck
+class OthelloAI:
+    def __init__(self):
+        self.board = [["." for _ in range(8)] for _ in range(8)]
+        self.current_player = "●"  # Player first
+        self.directions = [
+            (1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)
+        ]
 
-# カードの合計点数を計算
-def calculate_score(hand):
-    score = 0
-    aces = 0
-    for card in hand:
-        rank = card['ランク']
-        if rank in ['J', 'Q', 'K']:
-            score += 10
-        elif rank == 'A':
-            score += 11
-            aces += 1
+        # initial placement
+        self.board[3][3] = "○"
+        self.board[3][4] = "●"
+        self.board[4][3] = "●"
+        self.board[4][4] = "○"
+
+    def display_board(self):
+        print("  0 1 2 3 4 5 6 7")
+        for y in range(8):
+            print(y, " ".join(self.board[y]))
+
+    def in_board(self, x, y):
+        return 0 <= x < 8 and 0 <= y < 8
+
+    def valid_moves(self, player):
+        opponent = "○" if player == "●" else "●"
+        moves = []
+
+        for y in range(8):
+            for x in range(8):
+                if self.board[y][x] != ".":
+                    continue
+
+                flip_list = []
+
+                for dy, dx in self.directions:
+                    ny, nx = y + dy, x + dx
+                    flips = []
+
+                    while self.in_board(nx, ny) and self.board[ny][nx] == opponent:
+                        flips.append((ny, nx))
+                        ny += dy
+                        nx += dx
+
+                    if self.in_board(nx, ny) and self.board[ny][nx] == player and flips:
+                        flip_list.extend(flips)
+
+                if flip_list:
+                    moves.append((y, x, flip_list))
+
+        return moves
+
+    def place_stone(self, y, x, flips):
+        self.board[y][x] = self.current_player
+        for fy, fx in flips:
+            self.board[fy][fx] = self.current_player
+
+    def switch_player(self):
+        self.current_player = "○" if self.current_player == "●" else "●"
+
+    # =============== AI（白）: 一番ひっくり返せる手を選ぶ ===============
+    def ai_move(self, moves):
+        # sort by flip count descending
+        moves.sort(key=lambda m: len(m[2]), reverse=True)
+        return moves[0]  # best move
+
+    def play(self):
+        while True:
+            moves = self.valid_moves(self.current_player)
+
+            # 置ける場所がない場合パス
+            if not moves:
+                print(f"{self.current_player} は置けません。パスします。")
+                self.switch_player()
+                if not self.valid_moves(self.current_player):
+                    break
+                continue
+
+            self.display_board()
+
+            # ------------------- Player turn -------------------
+            if self.current_player == "●":
+                print("\nあなたの番（黒 ●）")
+                print("置ける場所:", [(y, x) for y, x, _ in moves])
+
+                try:
+                    y = int(input("y座標: "))
+                    x = int(input("x座標: "))
+                except ValueError:
+                    print("数字を入力してください。")
+                    continue
+
+                chosen = next((m for m in moves if m[0] == y and m[1] == x), None)
+                if not chosen:
+                    print("その場所には置けません。")
+                    continue
+
+                self.place_stone(*chosen)
+
+            # ------------------- AI turn -------------------
+            else:
+                print("\nAI の番（白 ○）を思考中...")
+                chosen = self.ai_move(moves)
+                print(f"AIは {chosen[0]}, {chosen[1]} に置きました")
+                self.place_stone(*chosen)
+
+            self.switch_player()
+
+        # game end
+        self.display_board()
+        black = sum(row.count("●") for row in self.board)
+        white = sum(row.count("○") for row in self.board)
+        print(f"\n=== ゲーム終了！ ===  ●:{black}  ○:{white}")
+
+        if black > white:
+            print("黒（あなた）の勝ち！🎉")
+        elif white > black:
+            print("白（AI）の勝ち！🤖")
+            print("AI WIN！")
         else:
-            score += int(rank)
-    # Aの調整（必要なら11→1に変換）
-    while score > 21 and aces:
-        score -= 10
-        aces -= 1
-    return score
+            print("引き分け！")
 
-# ゲーム開始
-def play_blackjack():
-    deck = create_deck()
-    player_hand = [deck.pop(), deck.pop()]
-    dealer_hand = [deck.pop(), deck.pop()]
 
-    # プレイヤーのターン
-    while True:
-        print(f"あなたの手札: {[card['ランク'] + card['スート'] for card in player_hand]}")
-        print(f"ディーラーの表向きカード: {dealer_hand[0]['ランク'] + dealer_hand[0]['スート']}")
-        
-        player_score = calculate_score(player_hand)
-        if player_score > 21:
-            print("バーストしました！あなたの負けです。")
-            return
-        
-        move = input("ヒット（h）かスタンド（s）を選んでください: ")
-        if move.lower() == 'h':
-            player_hand.append(deck.pop())
-        elif move.lower() == 's':
-            break
-        else:
-            print("無効な入力です。'h' または 's' を入力してください。")
-
-    # ディーラーのターン
-    while calculate_score(dealer_hand) < 17:
-        dealer_hand.append(deck.pop())
-
-    dealer_score = calculate_score(dealer_hand)
-    player_score = calculate_score(player_hand)
-
-    print(f"\nあなたの手札: {[card['ランク'] + card['スート'] for card in player_hand]} (合計: {player_score})")
-    print(f"ディーラーの手札: {[card['ランク'] + card['スート'] for card in dealer_hand]} (合計: {dealer_score})")
-
-    # 勝敗判定
-    if dealer_score > 21 or player_score > dealer_score:
-        print("おめでとう！あなたの勝ちです！")
-    elif player_score < dealer_score:
-        print("残念！あなたの負けです。")
-    else:
-        print("引き分けです！")
-
-# ゲームの実行
-play_blackjack()
+# Run
+if __name__ == "__main__":
+    OthelloAI().play()
