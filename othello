@@ -1,0 +1,126 @@
+import random
+
+class OthelloAI:
+    def __init__(self):
+        self.board = [["." for _ in range(8)] for _ in range(8)]
+        self.current_player = "●"  # Player first
+        self.directions = [
+            (1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)
+        ]
+
+        # initial placement
+        self.board[3][3] = "○"
+        self.board[3][4] = "●"
+        self.board[4][3] = "●"
+        self.board[4][4] = "○"
+
+    def display_board(self):
+        print("  0 1 2 3 4 5 6 7")
+        for y in range(8):
+            print(y, " ".join(self.board[y]))
+
+    def in_board(self, x, y):
+        return 0 <= x < 8 and 0 <= y < 8
+
+    def valid_moves(self, player):
+        opponent = "○" if player == "●" else "●"
+        moves = []
+
+        for y in range(8):
+            for x in range(8):
+                if self.board[y][x] != ".":
+                    continue
+
+                flip_list = []
+
+                for dy, dx in self.directions:
+                    ny, nx = y + dy, x + dx
+                    flips = []
+
+                    while self.in_board(nx, ny) and self.board[ny][nx] == opponent:
+                        flips.append((ny, nx))
+                        ny += dy
+                        nx += dx
+
+                    if self.in_board(nx, ny) and self.board[ny][nx] == player and flips:
+                        flip_list.extend(flips)
+
+                if flip_list:
+                    moves.append((y, x, flip_list))
+
+        return moves
+
+    def place_stone(self, y, x, flips):
+        self.board[y][x] = self.current_player
+        for fy, fx in flips:
+            self.board[fy][fx] = self.current_player
+
+    def switch_player(self):
+        self.current_player = "○" if self.current_player == "●" else "●"
+
+    # =============== AI（白）: 一番ひっくり返せる手を選ぶ ===============
+    def ai_move(self, moves):
+        # sort by flip count descending
+        moves.sort(key=lambda m: len(m[2]), reverse=True)
+        return moves[0]  # best move
+
+    def play(self):
+        while True:
+            moves = self.valid_moves(self.current_player)
+
+            # 置ける場所がない場合パス
+            if not moves:
+                print(f"{self.current_player} は置けません。パスします。")
+                self.switch_player()
+                if not self.valid_moves(self.current_player):
+                    break
+                continue
+
+            self.display_board()
+
+            # ------------------- Player turn -------------------
+            if self.current_player == "●":
+                print("\nあなたの番（黒 ●）")
+                print("置ける場所:", [(y, x) for y, x, _ in moves])
+
+                try:
+                    y = int(input("y座標: "))
+                    x = int(input("x座標: "))
+                except ValueError:
+                    print("数字を入力してください。")
+                    continue
+
+                chosen = next((m for m in moves if m[0] == y and m[1] == x), None)
+                if not chosen:
+                    print("その場所には置けません。")
+                    continue
+
+                self.place_stone(*chosen)
+
+            # ------------------- AI turn -------------------
+            else:
+                print("\nAI の番（白 ○）を思考中...")
+                chosen = self.ai_move(moves)
+                print(f"AIは {chosen[0]}, {chosen[1]} に置きました")
+                self.place_stone(*chosen)
+
+            self.switch_player()
+
+        # game end
+        self.display_board()
+        black = sum(row.count("●") for row in self.board)
+        white = sum(row.count("○") for row in self.board)
+        print(f"\n=== ゲーム終了！ ===  ●:{black}  ○:{white}")
+
+        if black > white:
+            print("黒（あなた）の勝ち！🎉")
+        elif white > black:
+            print("白（AI）の勝ち！🤖")
+            print("AI WIN！")
+        else:
+            print("引き分け！")
+
+
+# Run
+if __name__ == "__main__":
+    OthelloAI().play()
