@@ -1,0 +1,143 @@
+# chess_two_player.py
+import chess
+import sys
+
+def print_board(board: chess.Board):
+    # 人間向けに表示（unicode）
+    print("\n" + board.unicode(borders=True) + "\n")
+
+def input_move(board: chess.Board):
+    """
+    プレイヤーの入力を処理する。
+    受け付けるコマンド:
+      - UCI: e2e4
+      - SAN: e4, Nf3, O-O
+      - resign / r
+      - undo
+      - legal   -> 合法手一覧を表示
+      - save <filename> -> FENで保存
+      - load <filename> -> FENから読み込み
+      - exit
+    """
+    while True:
+        raw = input("手を入力 (例 e2e4 または Nf3) / 'legal','undo','resign','save f','load f','exit': ").strip()
+        if not raw:
+            continue
+        cmd = raw.split()
+        # simple commands
+        if raw.lower() in ("resign","r"):
+            return ("resign", None)
+        if raw.lower() == "undo":
+            return ("undo", None)
+        if raw.lower() == "legal":
+            return ("legal", None)
+        if raw.lower().startswith("save "):
+            return ("save", cmd[1] if len(cmd) >= 2 else None)
+        if raw.lower().startswith("load "):
+            return ("load", cmd[1] if len(cmd) >= 2 else None)
+        if raw.lower() == "exit":
+            return ("exit", None)
+
+        # try UCI first (four/long format)
+        try:
+            move = chess.Move.from_uci(raw)
+            if move in board.legal_moves:
+                return ("move", move)
+            else:
+                print("その手は合法ではありません（UCI判定）。")
+                continue
+        except Exception:
+            pass
+
+        # try SAN (e4, Nf3, O-O, exd5 など)
+        try:
+            move = board.parse_san(raw)
+            if move in board.legal_moves:
+                return ("move", move)
+        except Exception:
+            print("無効な手または解釈できませんでした。UCI (e2e4) か SAN (Nf3, e4, O-O) を使ってください。")
+            continue
+
+def save_fen(board: chess.Board, filename: str):
+    if not filename:
+        print("ファイル名を指定してください。例: save savefile.fen")
+        return
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(board.fen())
+        print(f"FEN を {filename} に保存しました。")
+    except Exception as e:
+        print("保存に失敗しました:", e)
+
+def load_fen(board: chess.Board, filename: str):
+    if not filename:
+        print("ファイル名を指定してください。例: load savefile.fen")
+        return None
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            fen = f.read().strip()
+        new_board = chess.Board(fen)
+        print(f"{filename} から盤面を読み込みました。")
+        return new_board
+    except Exception as e:
+        print("読み込みに失敗しました:", e)
+        return None
+
+def main():
+    board = chess.Board()
+    print("=== コンソールチェス（対人） ===")
+    print("入力例：UCI形式 e2e4  または SAN形式 Nf3  特殊: resign, undo, legal, save <file>, load <file>, exit")
+    while True:
+        print_board(board)
+        if board.is_check():
+            print("チェックされています！")
+        if board.is_game_over():
+            outcome = board.outcome()
+            print("ゲーム終了:", board.result(), "-", outcome.termination if outcome else "")
+            if outcome and outcome.winner is not None:
+                print("勝者:", "白" if outcome.winner else "黒")
+            break
+
+        player = "白 (White)" if board.turn == chess.WHITE else "黒 (Black)"
+        print(f"手番: {player}")
+        cmd, arg = input_move(board)
+
+        if cmd == "resign":
+            print(f"{player} は降参しました。")
+            winner = not board.turn
+            print("勝者:", "白" if winner else "黒")
+            break
+        if cmd == "undo":
+            if board.move_stack:
+                board.pop()
+                print("一手戻しました。")
+            else:
+                print("戻せる手がありません。")
+            continue
+        if cmd == "legal":
+            moves = list(board.legal_moves)
+            print("合法手の数:", len(moves))
+            # 代表的に UCI 表示で一覧
+            print(", ".join(m.uci() for m in moves))
+            continue
+        if cmd == "save":
+            save_fen(board, arg)
+            continue
+        if cmd == "load":
+            new_board = load_fen(board, arg)
+            if new_board:
+                board = new_board
+            continue
+        if cmd == "exit":
+            print("終了します。")
+            break
+        if cmd == "move":
+            board.push(arg)
+            continue
+
+    print("最終盤面:")
+    print_board(board)
+    print("終了。ご利用ありがとうございました。")
+
+if __name__ == "__main__":
+    main()
