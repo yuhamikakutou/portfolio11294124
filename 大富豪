@@ -1,0 +1,299 @@
+import React, { useState, useEffect } from "react";
+
+// Simple Daifugo (大富豪) single-file React app
+// - Tailwind CSS assumed available in the host project (optional)
+// - This is a compact, educational version: supports singles and pairs, passing, turn order
+// - CPU players play the smallest valid play they can or pass
+
+const SUITS = ["♠", "♥", "♦", "♣"];
+const RANK_LABELS = [
+  "3","4","5","6","7","8","9","10","J","Q","K","A","2"
+];
+// Map internal rank index 0..12 corresponding to labels above
+
+function makeDeck() {
+  const deck = [];
+  for (let r = 0; r < RANK_LABELS.length; r++) {
+    for (let s = 0; s < SUITS.length; s++) {
+      deck.push({ rank: r, suit: SUITS[s], id: `${r}-${s}` });
+    }
+  }
+  return deck;
+}
+
+function shuffle(array) {
+  const a = array.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function sortHand(hand) {
+  return hand.slice().sort((a, b) => a.rank - b.rank || a.suit.localeCompare(b.suit));
+}
+
+function groupByRank(hand) {
+  const map = {};
+  hand.forEach(card => {
+    map[card.rank] = map[card.rank] || [];
+    map[card.rank].push(card);
+  });
+  return map;
+}
+
+function label(card) {
+  return `${card.suit}${RANK_LABELS[card.rank]}`;
+}
+
+// Compare plays: same count required; higher rank wins.
+// Returns true if playA beats playB. play is array of cards.
+function beats(playA, playB) {
+  if (!playB || playB.length === 0) return true; // always allowed if table empty
+  if (playA.length !== playB.length) return false;
+  // Highest rank in playA vs playB (since in this simplified version all cards in a play have same rank)
+  const aRank = playA[0].rank;
+  const bRank = playB[0].rank;
+  return aRank > bRank;
+}
+
+// CPU: choose the smallest valid play that beats currentTable, else pass
+function cpuChoosePlay(hand, tablePlay) {
+  const groups = groupByRank(hand);
+  const counts = Object.keys(groups).map(r => ({ rank: parseInt(r), count: groups[r].length, cards: groups[r] }));
+  counts.sort((a, b) => a.rank - b.rank);
+  // try singles then pairs
+  const tryCounts = [1,2];
+  for (let cnt of tryCounts) {
+    for (let g of counts) {
+      if (g.count >= cnt) {
+        const candidate = g.cards.slice(0, cnt);
+        if (!tablePlay || tablePlay.length===0 || (candidate.length===tablePlay.length && candidate[0].rank > tablePlay[0].rank)) {
+          return candidate;
+        }
+      }
+    }
+  }
+  return null; // pass
+}
+
+export default function App() {
+  const [players, setPlayers] = useState([]); // array of arrays
+  const [handsVisible, setHandsVisible] = useState([true,false,false,false]);
+  const [currentPlayer, setCurrentPlayer] = useState(0);
+  const [tablePlay, setTablePlay] = useState([]); // last non-pass play on table
+  const [passes, setPasses] = useState(0);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [log, setLog] = useState([]);
+  const [winnerOrder, setWinnerOrder] = useState([]);
+
+  useEffect(() => startNewGame(), []);
+
+  function startNewGame() {
+    const deck = shuffle(makeDeck());
+    const p = [[],[],[],[]];
+    for (let i = 0; i < deck.length; i++) {
+      p[i % 4].push(deck[i]);
+    }
+    for (let i=0;i<4;i++) p[i] = sortHand(p[i]);
+    setPlayers(p);
+    setCurrentPlayer(0);
+    setTablePlay([]);
+    setPasses(0);
+    setSelectedIds([]);
+    setLog(["新しいゲームを開始しました。"]);
+    setWinnerOrder([]);
+  }
+
+  function appendLog(text) {
+    setLog(l => [text, ...l].slice(0,200));
+  }
+
+  function toggleSelect(card) {
+    if (selectedIds.includes(card.id)) {
+      setSelectedIds(selectedIds.filter(id => id!==card.id));
+    } else {
+      setSelectedIds([...selectedIds, card.id]);
+    }
+  }
+
+  function playSelected() {
+    const me = players[currentPlayer];
+    const selected = me.filter(c => selectedIds.includes(c.id));
+    if (selected.length === 0) return appendLog("カードを選んでください。");
+    // ensure all same rank
+    const sameRank = selected.every(c => c.rank === selected[0].rank);
+    if (!sameRank) return appendLog("同じランクのカードだけ出せます（この簡易版では）。");
+    if (tablePlay.length>0 && selected.length !== tablePlay.length) {
+      return appendLog(`場に出ているのは${tablePlay.length}枚です。同数で出してください。`);
+    }
+    if (!beats(selected, tablePlay)) return appendLog("そのカードでは場を上回れません。もっと強いカードを選んでください。");
+
+    // apply play
+    const newPlayers = players.map((h,i)=> i===currentPlayer ? h.filter(c=> !selectedIds.includes(c.id)) : h);
+    setPlayers(newPlayers);
+    setTablePlay(selected);
+    setSelectedIds([]);
+    setPasses(0);
+    appendLog(`Player ${currentPlayer+1} が ${selected.map(label).join(' ')} を出した`);
+
+    // check win
+    if (newPlayers[currentPlayer].length === 0) {
+      setWinnerOrder(order => [...order, currentPlayer]);
+      appendLog(`Player ${currentPlayer+1} が上がりました！`);
+    }
+
+    // next turn
+    const next = nextActivePlayer(currentPlayer, newPlayers);
+    setTimeout(()=> setCurrentPlayer(next), 300);
+  }
+
+  function pass() {
+    appendLog(`Player ${currentPlayer+1} がパス`);
+    const newPasses = passes + 1;
+    setPasses(newPasses);
+    if (newPasses >= activePlayerCount()-1) {
+      // clear table
+      appendLog("場が流れました（リセット）。");
+      setTablePlay([]);
+      setPasses(0);
+      // next is player after last who played (here just next player)
+      const next = nextActivePlayer(currentPlayer);
+      setCurrentPlayer(next);
+    } else {
+      const next = nextActivePlayer(currentPlayer);
+      setCurrentPlayer(next);
+    }
+  }
+
+  function nextActivePlayer(from, currPlayers=players) {
+    // find next player who still has cards
+    let i = from;
+    for (let k=1;k<=4;k++){
+      const j = (from + k) % 4;
+      if (currPlayers[j].length>0) return j;
+    }
+    return from;
+  }
+
+  function activePlayerCount() {
+    return players.filter(h=>h.length>0).length;
+  }
+
+  // Auto-play for CPU players
+  useEffect(()=>{
+    // if current player is not human (player 0), let CPU act
+    if (players.length===0) return;
+    if (winnerOrder.length >= 3 || activePlayerCount()<=1) return; // game end condition
+    if (currentPlayer !== 0 && players[currentPlayer].length>0) {
+      const hand = players[currentPlayer];
+      setTimeout(()=>{
+        const choice = cpuChoosePlay(hand, tablePlay);
+        if (choice && choice.length>0) {
+          // apply CPU play
+          const newPlayers = players.map((h,i)=> i===currentPlayer ? h.filter(c=> !choice.map(x=>x.id).includes(c.id)) : h);
+          setPlayers(newPlayers);
+          setTablePlay(choice);
+          setPasses(0);
+          appendLog(`Player ${currentPlayer+1} が ${choice.map(label).join(' ')} を出した`);
+          if (newPlayers[currentPlayer].length === 0) {
+            setWinnerOrder(order => [...order, currentPlayer]);
+            appendLog(`Player ${currentPlayer+1} が上がりました！`);
+          }
+          const next = nextActivePlayer(currentPlayer, newPlayers);
+          setCurrentPlayer(next);
+        } else {
+          appendLog(`Player ${currentPlayer+1} がパス`);
+          const newPasses = passes + 1;
+          setPasses(newPasses);
+          if (newPasses >= activePlayerCount()-1) {
+            appendLog("場が流れました（リセット）。");
+            setTablePlay([]);
+            setPasses(0);
+            const next = nextActivePlayer(currentPlayer);
+            setCurrentPlayer(next);
+          } else {
+            const next = nextActivePlayer(currentPlayer);
+            setCurrentPlayer(next);
+          }
+        }
+      }, 700);
+    }
+  }, [currentPlayer, players, tablePlay, passes, winnerOrder]);
+
+  return (
+    <div className="min-h-screen p-6 bg-gradient-to-br from-slate-50 to-slate-100 font-sans">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-2xl font-bold mb-4">大富豪（簡易版） — React GUI</h1>
+
+        <div className="mb-4 flex gap-2">
+          <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={startNewGame}>新しいゲーム</button>
+          <button className="px-3 py-2 bg-gray-200 rounded" onClick={()=> setHandsVisible(v=>v.map((x,i)=> i===0 ? true : !x))}>CPUの手札表示 切替</button>
+          <div className="ml-auto">ターン: <strong>Player {currentPlayer+1}</strong></div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4">
+          {/* Opponent top */}
+          <PlayerView index={2} players={players} showHidden={!handsVisible[2]} labelPrefix="北"/>
+
+          <div className="flex items-start gap-4">
+            <PlayerView index={1} players={players} showHidden={!handsVisible[1]} labelPrefix="西"/>
+
+            <div className="flex-1 p-4 rounded border bg-white">
+              <div className="mb-3">場: {tablePlay.length>0 ? tablePlay.map(label).join(' ') : '（空）'}</div>
+
+              <div className="mb-3">
+                <div className="mb-1">あなたの手札（Player 1）</div>
+                <div className="flex flex-wrap gap-2">
+                  {players[0] && players[0].map(card => (
+                    <button key={card.id}
+                      onClick={() => toggleSelect(card)}
+                      className={`px-2 py-1 border rounded ${selectedIds.includes(card.id) ? 'ring-2 ring-blue-400' : ''}`}>
+                      {label(card)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button className="px-3 py-2 bg-green-600 text-white rounded" onClick={playSelected}>出す</button>
+                <button className="px-3 py-2 bg-yellow-400 rounded" onClick={pass}>パス</button>
+                <button className="px-3 py-2 bg-gray-200 rounded" onClick={()=> { setSelectedIds([]); setTablePlay([]); setPasses(0); appendLog('場をリセットしました（デバッグ）。'); }}>リセット場</button>
+              </div>
+
+              <div className="mt-4">
+                <div className="mb-2 font-medium">順位</div>
+                <div>{winnerOrder.map((w,i)=> <span key={w} className="mr-2">{i+1}位: Player {w+1}</span>)}</div>
+              </div>
+            </div>
+
+            <PlayerView index={3} players={players} showHidden={!handsVisible[3]} labelPrefix="東"/>
+          </div>
+
+          <PlayerView index={0} players={players} showHidden={false} labelPrefix="南 (You)"/>
+
+          <div className="h-48 overflow-auto border rounded p-2 bg-white">
+            <div className="font-semibold mb-2">ログ（新しい順）</div>
+            {log.map((l, idx) => <div key={idx} className="text-sm">{l}</div>)}
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function PlayerView({ index, players, showHidden, labelPrefix }){
+  const hand = players[index] || [];
+  return (
+    <div className="w-44 p-2 rounded border bg-white">
+      <div className="font-semibold mb-2">{labelPrefix} — Player {index+1}</div>
+      <div className="text-sm">カード数: {hand.length}</div>
+      <div className="mt-2 text-sm">
+        {hand.length===0 ? '上がり' : (showHidden ? hand.map(c=>label(c)).join(' ') : '非表示')}
+      </div>
+    </div>
+  );
+}
